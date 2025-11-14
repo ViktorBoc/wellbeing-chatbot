@@ -99,3 +99,64 @@
 * Neposkytuje diagnózy, medicínske pokyny ani podrobné návody na sebapoškodenie.
 * Pri náznaku rizika **nevolá model** a okamžite **smeruje na odbornú/krízovú pomoc** (viď „Bezpečnostná vetva bez modelu“).
 * Obsah konverzácie sa **neperzistuje** mimo aktuálnej relácie.
+
+
+---
+## 🧩 Code overview (EN)
+
+- **Configuration block (top of file)**  
+  Loads environment variables, reads `OPENAI_API_KEY` and `OPENAI_MODEL`, creates an OpenAI client and sets Streamlit page config. If the key is missing, the app stops with an error.
+
+- **`CRISIS_PATTERNS`**  
+  Big regex detecting suicidality / self-harm phrases in Slovak, Czech and English (including slang and typical formulations).
+
+- **`SK_CRISIS_BANNER`**  
+  Markdown text for the crisis banner with Slovak helplines and simple immediate safety steps.
+
+- **`FEELING_HINTS`**  
+  Regex catching emotional / problem-related language (feeling sad, anxious, stressed, exhausted, etc.), plus context words like work, school, relationship, debts.
+
+- **`GENERIC_REQUEST_HINTS`**  
+  Regex for short but clear user requests where extra context is not needed (e.g. “napíš mi niečo pekné”, “povedz mi vtip”, “vytvor …”).
+
+- **`QUESTION_WORDS`**  
+  Regex for common question words (čo, ako, ake, kde, kedy, prečo, koľko, kto, aký, ktorý…), tolerant to some missing diacritics.
+
+- **`has_context(text)`**  
+  Decides if a single user message has enough information to respond with a wellbeing-style answer:  
+  - Emotional/problem language → `True`  
+  - Clear request via `GENERIC_REQUEST_HINTS` → `True`  
+  - Short question (≥ 3 words and contains a question word or “?”) → `True`  
+  - Otherwise, messages with ≥ 5 words are treated as having some context.
+
+- **`history_has_context()`**  
+  Scans `st.session_state.messages` for any user message that `has_context` returns `True` for.  
+  Used to distinguish “beginning of conversation, still no context” vs. “we already know what’s going on”.
+
+- **`in_crisis(text)`**  
+  Simple wrapper that returns `True` if `CRISIS_PATTERNS` matches the input.
+
+- **`moderation_selfharm(text)`**  
+  Calls `omni-moderation-latest` and returns `True` if moderation marks any self-harm/suicide category.  
+  On failure falls back to `False` so that regex-based `in_crisis` can still work.
+
+- **`SYSTEM_PROMPT`**  
+  Large instruction block defining the wellbeing persona, communication style, safety triage, response format and ethical boundaries (no diagnoses, no self-harm instructions).
+
+- **`ai_reply(messages, temperature)`**  
+  Calls `client.chat.completions.create(...)` with the full conversation and returns the assistant’s reply text.  
+  On exception it returns a human-readable error message.
+
+- **Streamlit UI section**  
+  - Sets title and caption.  
+  - Sidebar slider controls the OpenAI temperature.  
+  - Initializes `st.session_state.messages` with system prompt and greeting.  
+  - Renders conversation history (excluding the system message).  
+  - Reads new user input via `st.chat_input`.  
+  - On new input:
+    1. Appends user message to history and displays it.  
+    2. If `moderation_selfharm` or `in_crisis` → show crisis banner and a fixed supportive message (no model call).  
+    3. Else if there is still no context (`not history_has_context()` and `not has_context(user_input)`) → send the static clarification asking for more context.  
+    4. Else → call `ai_reply` and show the model-generated wellbeing response.  
+  - Shows a footer disclaimer about non-clinical nature and emergency contact.
+

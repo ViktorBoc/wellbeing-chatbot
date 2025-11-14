@@ -5,7 +5,6 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# ----------------- Konfigurácia -----------------
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
 MODEL = os.getenv("OPENAI_MODEL") or st.secrets.get("OPENAI_MODEL", "gpt-4o")
@@ -17,7 +16,6 @@ if not OPENAI_API_KEY:
 client = OpenAI(api_key=OPENAI_API_KEY)
 st.set_page_config(page_title="Wellbeing Chatbot", page_icon="🫶", layout="centered")
 
-# ----------------- Krízová detekcia -----------------
 CRISIS_PATTERNS = re.compile(
     r"""(
         # SLOVENSKY – všeobecné samovražedné vyjadrenia
@@ -57,7 +55,6 @@ CRISIS_PATTERNS = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-
 SK_CRISIS_BANNER = (
     "**🔴 Ak si v bezprostrednom ohrození, hneď volaj 112.**\n\n"
     "**Overené kontakty (Slovensko):**\n"
@@ -74,7 +71,6 @@ SK_CRISIS_BANNER = (
 )
 
 
-# ----------------- Heuristika: je už dosť kontextu? -----------------
 FEELING_HINTS = re.compile(
     r"""(
         # Priame pomenovanie stavu/pocitu
@@ -93,7 +89,6 @@ FEELING_HINTS = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
-# Krátke, ale zrozumiteľné požiadavky, kde netreba osobný kontext
 GENERIC_REQUEST_HINTS = re.compile(
     r"""(
         # priame požiadavky typu "napíš/povedz/ukáž/daj mi ..."
@@ -116,28 +111,23 @@ QUESTION_WORDS = re.compile(
     re.IGNORECASE,
 )
 
-
 def has_context(text: str) -> bool:
     """Je v texte náznak pocitov/problému, alebo je to jasná požiadavka/otázka?"""
     t = (text or "").strip()
     if not t:
         return False
 
-    # a) emočné / problémové veci -> určite kontext
     if FEELING_HINTS.search(t):
         return True
 
-    # b) krátke, ale jasné požiadavky typu "napíš mi ..." / "povedz mi ..."
     if GENERIC_REQUEST_HINTS.search(t):
         return True
 
     tokens = t.split()
 
-    # c) otázky (čo/ako/kde/kedy/koľko...) berieme ako kontext už od ~3 slov
     if QUESTION_WORDS.search(t) or "?" in t:
         return len(tokens) >= 3
 
-    # d) fallback: dlhšie správy berieme ako kontext
     return len(tokens) >= 5
 
 def history_has_context() -> bool:
@@ -170,11 +160,9 @@ def moderation_selfharm(text: str) -> bool:
             cat.get("suicide", False),
         ])
     except Exception:
-        # Ak moderácia zlyhá, nech radšej rozhoduje tvoj regex in_crisis()
         return False
 
 
-# ----------------- Systémový prompt -----------------
 SYSTEM_PROMPT = """
 Si empatický wellbeing sprievodca v SLOVENČINE. Nie si terapia ani urgentná zdravotná starostlivosť.
 Neposkytuješ diagnózy, medicínske pokyny ani návody na sebapoškodzovanie. Tvoj cieľ: bezpečne podporiť
@@ -223,7 +211,6 @@ psychohygienu a zvládanie (stres, úzkosť, smútok, vyčerpanie), a pri riziku
 - Rešpektuj anonymitu; nevyžaduj citlivé detaily. Nemanipuluj, netlač.
 """
 
-
 def ai_reply(messages, temperature: float = 0.6) -> str:
     """Volá OpenAI Chat Completions a vráti text odpovede."""
     try:
@@ -239,7 +226,6 @@ def ai_reply(messages, temperature: float = 0.6) -> str:
             f"alebo skontroluj konfiguráciu API. (Detail: {e})"
         )
 
-# ----------------- UI -----------------
 st.title("🫶 Wellbeing Chatbot")
 st.caption("Podporný, empatický a praktický sprievodca psychohygienou. Nenahrádza odbornú starostlivosť.")
 
@@ -247,7 +233,6 @@ with st.sidebar:
     st.subheader("⚙️ Nastavenia")
     temperature = st.slider("Kreativita (temperature)", 0.0, 1.0, 0.6, 0.1)
 
-# Inicializácia konverzácie
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -260,14 +245,12 @@ if "messages" not in st.session_state:
         },
     ]
 
-# Zobrazenie histórie (okrem system)
 for msg in st.session_state.messages:
     if msg["role"] == "system":
         continue
     with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
         st.markdown(msg["content"])
 
-# Vstup
 user_input = st.chat_input("Napíš, s čím chceš pomôcť…")
 
 if user_input:
@@ -275,7 +258,6 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # 0) Moderácia na self-harm → bezpečný tok (bez modelu)
     if moderation_selfharm(user_input) or in_crisis(user_input):
         with st.chat_message("assistant"):
             st.error("Vyzerá to, že prežívaš niečo veľmi ťažké.")
@@ -288,7 +270,6 @@ if user_input:
             ),
         })
 
-    # 1) Ešte nie je kontext → uznanie + 1 otázka (bez rád)
     elif not history_has_context() and not has_context(user_input):
         clarify = (
             "Zatiaľ som od teba zachytil len veľmi krátku správu, z ktorej neviem pochopiť, čo sa deje. "
@@ -299,7 +280,6 @@ if user_input:
             st.markdown(clarify)
         st.session_state.messages.append({"role": "assistant", "content": clarify})
 
-    # 2) Už je kontext → plná odpoveď cez model
     else:
         reply = ai_reply(st.session_state.messages, temperature=temperature)
         with st.chat_message("assistant"):
