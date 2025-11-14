@@ -7,8 +7,8 @@ from openai import OpenAI
 
 # ----------------- Konfigurácia -----------------
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+MODEL = os.getenv("OPENAI_MODEL") or st.secrets.get("OPENAI_MODEL", "gpt-4o")
 
 if not OPENAI_API_KEY:
     st.error("❗ Chýba OPENAI_API_KEY. Pridaj ho do .env alebo ako systémovú premennú a spusti appku znova.")
@@ -93,13 +93,52 @@ FEELING_HINTS = re.compile(
     re.IGNORECASE | re.VERBOSE,
 )
 
+# Krátke, ale zrozumiteľné požiadavky, kde netreba osobný kontext
+GENERIC_REQUEST_HINTS = re.compile(
+    r"""(
+        # priame požiadavky typu "napíš/povedz/ukáž/daj mi ..."
+        \bnap[íi]š\s+mi\b|
+        \bpovedz\s+mi\b|
+        \buk[aá]ž\s+mi\b|
+        \bdaj\s+mi\b|
+        \bgeneruj\b|
+        \bvytvor\b|
+
+        # typické "napíš mi niečo pekné/milé/motivačné"
+        \bnap[íi]š\s+mi\s+nie[čc]o\s+(pekne|pekné|milé|pozit[ií]vne|motiva[čc]n[eé])\b|
+        \bnap[íi]š\s+mi\s+(vtip|afirm[áa]ciu|b[aá]se[nň])\b
+    )""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+QUESTION_WORDS = re.compile(
+    r"\b(čo|co|ako|ake|kde|kedy|pre[čc]o|ko[ľl]ko|kto|ak[eyýaé]|ktor[eyýaé])\b",
+    re.IGNORECASE,
+)
+
 
 def has_context(text: str) -> bool:
-    """Je v texte náznak pocitov/problému? Alebo aspoň trochu dlhší opis?"""
-    if FEELING_HINTS.search(text or ""):
+    """Je v texte náznak pocitov/problému, alebo je to jasná požiadavka/otázka?"""
+    t = (text or "").strip()
+    if not t:
+        return False
+
+    # a) emočné / problémové veci -> určite kontext
+    if FEELING_HINTS.search(t):
         return True
-    # jednoduchá dĺžková poistka: 7+ slov berieme ako 'nejaký' kontext
-    return len((text or "").strip().split()) >= 7
+
+    # b) krátke, ale jasné požiadavky typu "napíš mi ..." / "povedz mi ..."
+    if GENERIC_REQUEST_HINTS.search(t):
+        return True
+
+    tokens = t.split()
+
+    # c) otázky (čo/ako/kde/kedy/koľko...) berieme ako kontext už od ~3 slov
+    if QUESTION_WORDS.search(t) or "?" in t:
+        return len(tokens) >= 3
+
+    # d) fallback: dlhšie správy berieme ako kontext
+    return len(tokens) >= 5
 
 def history_has_context() -> bool:
     """Prešla už konverzácia bodom, kde používateľ poskytol kontext?"""
